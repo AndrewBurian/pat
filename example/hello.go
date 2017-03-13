@@ -5,16 +5,22 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/bmizerany/pat"
+	"github.com/andrewburian/pat"
 )
 
 // hello world, the web server
 func HelloServer(w http.ResponseWriter, req *http.Request) {
-	io.WriteString(w, "hello, "+req.URL.Query().Get(":name")+"!\n")
+	if name, err := pat.GetPathParam(req, ":name"); err == nil {
+		io.WriteString(w, "context: hello, "+name+"!\n")
+	} else {
+		io.WriteString(w, "query: hello there")
+	}
+
 }
 
 func main() {
 	m := pat.New()
+	m.UseContext = true // store path params in req.context for efficiency
 	m.Get("/hello/:name", http.HandlerFunc(HelloServer))
 
 	// Register this pat with the default serve mux so that other packages

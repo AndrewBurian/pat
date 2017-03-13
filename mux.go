@@ -2,6 +2,8 @@
 package pat
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -98,12 +100,31 @@ type PatternServeMux struct {
 	// pattern for its method. NotFound should be set before serving any
 	// requests.
 	NotFound http.Handler
-	handlers map[string][]*patHandler
+	// UseContext puts path parameters in the Request.context object instead of
+	// putting the values back into the query string
+	UseContext bool
+	handlers   map[string][]*patHandler
 }
+
+// Key type for request context keys
+type ctxKey string
 
 // New returns a new PatternServeMux.
 func New() *PatternServeMux {
 	return &PatternServeMux{handlers: make(map[string][]*patHandler)}
+}
+
+var (
+	ErrorParamNotFound = errors.New("Path parameter not found")
+)
+
+func GetPathParam(request *http.Request, param string) (string, error) {
+
+	val := request.Context().Value(ctxKey(param))
+	if val == nil {
+		return "", ErrorParamNotFound
+	}
+	return val.(string), nil
 }
 
 // ServeHTTP matches r.URL.Path against its routing table using the rules
@@ -112,7 +133,17 @@ func (p *PatternServeMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, ph := range p.handlers[r.Method] {
 		if params, ok := ph.try(r.URL.Path); ok {
 			if len(params) > 0 && !ph.redirect {
-				r.URL.RawQuery = url.Values(params).Encode() + "&" + r.URL.RawQuery
+				if p.UseContext {
+					ctx := r.Context()
+					for key, val := range params {
+						if len(val) > 0 {
+							ctx = context.WithValue(ctx, ctxKey(key), val[0])
+						}
+					}
+					r = r.WithContext(ctx)
+				} else {
+					r.URL.RawQuery = url.Values(params).Encode() + "&" + r.URL.RawQuery
+				}
 			}
 			ph.ServeHTTP(w, r)
 			return
@@ -171,6 +202,11 @@ func (p *PatternServeMux) Put(pat string, h http.Handler) {
 
 // Del will register a pattern with a handler for DELETE requests.
 func (p *PatternServeMux) Del(pat string, h http.Handler) {
+	p.Add("DELETE", pat, h)
+}
+
+// Delete will register a pattern with a handler for DELETE requests.
+func (p *PatternServeMux) Delete(pat string, h http.Handler) {
 	p.Add("DELETE", pat, h)
 }
 
